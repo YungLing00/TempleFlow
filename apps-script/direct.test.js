@@ -8,7 +8,7 @@ test('direct GitHub form verifies LINE, writes once and returns a minimal receip
   let adminIds='Utest';
   const context={
     ContentService:{MimeType:{JSON:'json',JAVASCRIPT:'javascript'},createTextOutput(text){return {text,setMimeType(type){this.mime=type;return this}}}},
-    PropertiesService:{getScriptProperties(){return {getProperty(key){return key==='ADMIN_LINE_USER_IDS'?adminIds:{TEMPLEFLOW_SHEET_ID:'sheet',LINE_CHANNEL_ID:'2011717805'}[key]}}}},
+    PropertiesService:{getScriptProperties(){return {getProperty(key){return key==='TEMPLEFLOW_ADMIN_LINE_USER_IDS'?adminIds:{TEMPLEFLOW_SHEET_ID:'sheet',LINE_CHANNEL_ID:'2011717805',ADMIN_LINE_USER_IDS:'管理員的 LINE 使用者 ID；多人用半形逗號分隔'}[key]}}}},
     UrlFetchApp:{fetch(url,options){assert.match(url,/api.line.me/);assert.equal(options.payload.client_id,'2011717805');return {getResponseCode:()=>200,getContentText:()=>JSON.stringify({sub:'Utest'})}}},
     LockService:{getScriptLock(){return {waitLock(){},releaseLock(){}}}},
     CacheService:{getScriptCache(){return {put(k,v){cache.set(k,v)},get(k){return cache.get(k)||null}}}},
