@@ -31,8 +31,8 @@ nav{display:flex;gap:8px;overflow-x:auto;margin:25px 0 18px;padding-bottom:5px}n
 <script>
 (()=>{'use strict';
 const KEY='templeflow-demo-v1', kinds=['appointments','lights','volunteers','pilgrimages'];
-const fresh=()=>({appointments:[],lights:[],volunteers:[],piligrimages:[],pilgrimages:[],current:0});
-function load(){try{const x=JSON.parse(localStorage.getItem(KEY));if(!x||typeof x!=='object')return fresh();return {...fresh(),...Object.fromEntries(kinds.map(k=>[k,Array.isArray(x[k])?x[k]:[]])),current:Number.isInteger(x.current)&&x.current>=0?x.current:0}}catch{return fresh()}}
+const fresh=()=>({appointments:[],lights:[],volunteers:[],pilgrimages:[],current:0,currentDate:''});
+function load(){try{const x=JSON.parse(localStorage.getItem(KEY));if(!x||typeof x!=='object')return fresh();return {...fresh(),...Object.fromEntries(kinds.map(k=>[k,Array.isArray(x[k])?x[k]:[]])),current:Number.isInteger(x.current)&&x.current>=0?x.current:0,currentDate:typeof x.currentDate==='string'?x.currentDate:''}}catch{return fresh()}}
 let state=load();const save=()=>localStorage.setItem(KEY,JSON.stringify(state));const $=s=>document.querySelector(s);
 function go(tab){document.querySelectorAll('.panel').forEach(x=>x.classList.toggle('active',x.id===tab));document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));window.scrollTo({top:0,behavior:'smooth'});if(tab==='admin'||tab==='queue')render()}
 document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.tab)));
@@ -44,7 +44,7 @@ register('appointmentForm','appointments','ASK',x=>'展示預約已建立：'+x.
 register('lightForm','lights','LGT',x=>'展示登記已建立：'+x.id+'（'+x.type+'）。尚未完成付款或正式燈位分配。');
 register('volunteerForm','volunteers','VOL',x=>'展示報名已建立：'+x.id+'。尚未傳送給宮廟。');
 register('pilgrimageForm','pilgrimages','GRP',x=>'展示申請已建立：'+x.id+'。尚未傳送給宮廟。');
-function render(){const todays=state.appointments.filter(x=>x.date===today());$('#todayCount').textContent=todays.length;$('#currentNumber').textContent=state.current?String(state.current).padStart(3,'0'):'—';for(const [key,id] of [['appointments','appointmentCount'],['lights','lightCount'],['volunteers','volunteerCount'],['pilgrimages','pilgrimageCount']])$('#'+id).textContent=state[key].length;
+function render(){if(state.currentDate!==today()){state.current=0;state.currentDate=today();save()}const todays=state.appointments.filter(x=>x.date===today());$('#todayCount').textContent=todays.length;$('#currentNumber').textContent=state.current?String(state.current).padStart(3,'0'):'—';for(const [key,id] of [['appointments','appointmentCount'],['lights','lightCount'],['volunteers','volunteerCount'],['pilgrimages','pilgrimageCount']])$('#'+id).textContent=state[key].length;
 const rows=[...state.appointments.map(x=>['問事',x.id,x.name,x.date+' '+x.slot,x.status]),...state.lights.map(x=>['點燈',x.id,x.name,x.type,x.status]),...state.volunteers.map(x=>['志工',x.id,x.name,x.date+' '+x.role,x.status]),...state.pilgrimages.map(x=>['進香',x.id,x.group,x.date+' '+x.time,x.status])].reverse().slice(0,30);
 $('#records').innerHTML=rows.length?rows.map(r=>'<tr>'+r.map(v=>'<td>'+esc(v)+'</td>').join('')+'</tr>').join(''):'<tr><td colspan="5">目前沒有展示資料</td></tr>'}
 $('#nextQueue').addEventListener('click',()=>{const total=state.appointments.filter(x=>x.date===today()).length;if(state.current>=total){alert('今日沒有下一筆示範預約');return}state.current++;save();render()});
