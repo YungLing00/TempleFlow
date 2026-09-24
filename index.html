@@ -11,9 +11,9 @@ nav{display:flex;gap:8px;overflow-x:auto;margin:25px 0 18px;padding-bottom:5px}n
 </style>
 </head>
 <body>
-<header><div class="brand"><svg viewBox="0 0 64 64" role="img" aria-label="廟管家圖示"><rect width="64" height="64" rx="16" fill="#c99858"/><path d="M10 31 32 15l22 16M14 32h36M19 34v17m26-17v17M15 52h34M24 27h16" stroke="#173036" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/><circle cx="32" cy="42" r="4" fill="#173036"/></svg>廟管家 <span style="color:#dbb47c">TempleFlow</span></div><span class="badge">澎湖溫王宮示範 · 網站展示版</span></header>
+<header><div class="brand"><svg viewBox="0 0 64 64" role="img" aria-label="廟管家圖示"><rect width="64" height="64" rx="16" fill="#c99858"/><path d="M10 31 32 15l22 16M14 32h36M19 34v17m26-17v17M15 52h34M24 27h16" stroke="#173036" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/><circle cx="32" cy="42" r="4" fill="#173036"/></svg>廟管家 <span style="color:#dbb47c">TempleFlow</span></div><span class="badge" id="lineStatus" role="status">LINE 連線檢查中</span></header>
 <main>
-<section class="hero"><div class="eyebrow">讓廟務更順，心意更近</div><h1>一站處理日常廟務</h1><p>問事預約、點燈登記、志工排班與進香接待，從信眾到廟方，都能用簡單的方式完成。</p><div class="actions"><button class="btn" data-tab="appointment">立即預約問事</button><button class="btn alt" data-tab="light">登記點燈</button></div><small>目前為功能展示，尚未連接溫王宮或 LINE 官方帳號。</small></section>
+<section class="hero"><div class="eyebrow">讓廟務更順，心意更近</div><h1>一站處理日常廟務</h1><p>問事預約、點燈登記、志工排班與進香接待，從信眾到廟方，都能用簡單的方式完成。</p><div class="actions"><button class="btn" data-tab="appointment">立即預約問事</button><button class="btn alt" data-tab="light">登記點燈</button></div><small>目前為功能展示，尚未連接溫王宮或 LINE 官方帳號。LINE 登入不會傳送預約資料。</small><div class="actions"><button class="btn ghost hidden" id="lineLogin" type="button">使用 LINE 登入</button><button class="btn ghost hidden" id="lineLogout" type="button">登出 LINE</button></div></section>
 <nav aria-label="服務導覽"><button data-tab="home" class="active">服務首頁</button><button data-tab="appointment">問事預約</button><button data-tab="queue">即時叫號</button><button data-tab="light">點燈登記</button><button data-tab="volunteer">志工報名</button><button data-tab="pilgrimage">進香申請</button><button data-tab="admin">展示後台</button></nav>
 <section id="home" class="panel active"><h2>需要什麼服務？<small>從日常需求出發，也能依宮廟開啟節慶模組。</small></h2><div class="grid">
 <div class="card"><div class="icon">📿</div><h3>問事預約</h3><p>先填寫時段與需求，取得示範號碼牌。</p><button class="btn" data-tab="appointment">開始預約</button></div>
@@ -28,6 +28,7 @@ nav{display:flex;gap:8px;overflow-x:auto;margin:25px 0 18px;padding-bottom:5px}n
 <section id="pilgrimage" class="panel"><h2>進香團申請</h2><form id="pilgrimageForm"><div class="fields"><label>宮廟／團體名稱<input name="group" required maxlength="80"></label><label>聯絡人<input name="name" required maxlength="40"></label><label>聯絡電話<input name="phone" required type="tel" inputmode="tel" pattern="[0-9+() -]{8,20}"></label><label>抵達日期<input name="date" type="date" required></label><label>預計抵達時間<input name="time" type="time" required></label><label>人數<input name="people" type="number" min="1" max="1000" required></label><label>遊覽車台數<input name="buses" type="number" min="0" max="100" value="0" required></label></div><button class="btn" type="submit">送出示範申請</button><div class="result" role="status"></div></form></section>
 <section id="admin" class="panel"><h2>廟方展示後台<small>僅供同裝置展示，沒有管理員驗證；請勿用於真實營運。</small></h2><div class="note">此頁僅示範操作流程。資料儲存在瀏覽器內，清除網站資料後會消失。</div><div class="grid"><div class="card"><h3>問事預約</h3><div class="stat" id="appointmentCount">0</div></div><div class="card"><h3>點燈登記</h3><div class="stat" id="lightCount">0</div></div><div class="card"><h3>志工報名</h3><div class="stat" id="volunteerCount">0</div></div><div class="card"><h3>進香申請</h3><div class="stat" id="pilgrimageCount">0</div></div></div><div class="row" style="margin:20px 0"><button class="btn" id="nextQueue">叫下一號</button><button class="btn alt" id="exportData">匯出 CSV 名冊</button><button class="btn ghost" id="clearData" style="color:#526765">清除本機展示資料</button></div><h3>近期登記紀錄</h3><div class="table-wrap"><table><thead><tr><th>服務</th><th>編號</th><th>姓名／團體</th><th>日期／時段</th><th>狀態</th></tr></thead><tbody id="records"></tbody></table></div></section>
 <footer>廟管家 TempleFlow · 競賽原型展示 · 尚未提供正式宮廟服務</footer></main>
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <script>
 (()=>{'use strict';
 const KEY='templeflow-demo-v1', kinds=['appointments','lights','volunteers','pilgrimages'];
@@ -52,5 +53,24 @@ $('#clearData').addEventListener('click',()=>{if(!confirm('確定清除這台裝
 function csvCell(v){let s=String(v??'');if(/^[\s]*[=+\-@\t\r]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"'}
 $('#exportData').addEventListener('click',()=>{const lines=[['服務','編號','姓名或團體','電話','日期','時段或類型','狀態'],...state.appointments.map(x=>['問事',x.id,x.name,x.phone,x.date,x.slot,x.status]),...state.lights.map(x=>['點燈',x.id,x.name,x.phone,'',x.type,x.status]),...state.volunteers.map(x=>['志工',x.id,x.name,x.phone,x.date,x.role,x.status]),...state.pilgrimages.map(x=>['進香',x.id,x.group,x.phone,x.date,x.time,x.status])];const blob=new Blob(['\ufeff'+lines.map(r=>r.map(csvCell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='TempleFlow-demo-'+today()+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)});
 render();
+const LIFF_ID='2011717805-j1WLn24W';
+async function initLine(){
+ const status=$('#lineStatus'), login=$('#lineLogin'), logout=$('#lineLogout');
+ if(!window.liff){status.textContent='LINE SDK 無法載入';return}
+ try{
+  await liff.init({liffId:LIFF_ID});
+  login.addEventListener('click',()=>liff.login({redirectUri:location.origin+location.pathname}));
+  logout.addEventListener('click',()=>{liff.logout();location.reload()});
+  if(liff.isLoggedIn()){
+   const profile=await liff.getProfile();
+   status.textContent='LINE 已登入：'+profile.displayName;
+   logout.classList.remove('hidden');
+  }else{
+   status.textContent='LINE 尚未登入 · 展示版';
+   login.classList.remove('hidden');
+  }
+ }catch(e){status.textContent='LINE 初始化失敗 · 仍可使用展示版';console.error('LIFF initialization failed',e)}
+}
+initLine();
 })();
 </script></body></html>
