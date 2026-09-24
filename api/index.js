@@ -2,7 +2,7 @@ import { createSign, randomUUID } from 'node:crypto';
 
 const SHEETS = {
   appointments: ['id','temple_id','line_user_id','name','phone','date','slot','category','status','created_at'],
-  lights: ['id','temple_id','line_user_id','name','phone','type','status','created_at'],
+  lights: ['id','temple_id','line_user_id','name','phone','type','status','created_at','payment_method','payment_status'],
   volunteers: ['id','temple_id','line_user_id','name','phone','date','role','status','created_at'],
   pilgrimages: ['id','temple_id','line_user_id','group','name','phone','date','time','people','buses','status','created_at'],
   settings: ['key','value']
@@ -17,12 +17,38 @@ const env = () => {
   const sheetId = process.env.GOOGLE_SHEET_ID;
   const channelId = process.env.LINE_CHANNEL_ID;
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (process.env.APPS_SCRIPT_URL) {
+    if (!channelId || !process.env.APPS_SCRIPT_SHARED_SECRET) throw new Error('Apps Script 模式缺少 LINE_CHANNEL_ID 或共用密鑰');
+    return {channelId,appsScript:true};
+  }
   if (!sheetId || !channelId || !raw) throw new Error('後端尚未設定 Google Sheet 與 LINE Channel');
   let account;
   try { account = JSON.parse(raw); } catch { throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON 格式錯誤'); }
   if (!account.client_email || !account.private_key) throw new Error('Google Service Account 缺少必要欄位');
   return { sheetId, channelId, account };
 };
+const usingScript=()=>!!process.env.APPS_SCRIPT_URL;
+async function scriptHealth(){
+  try{
+    const response=await fetch(process.env.APPS_SCRIPT_URL,{method:'GET',redirect:'follow',signal:AbortSignal.timeout(7000)});
+    if(!response.ok||!(response.headers.get('content-type')||'').includes('json'))return false;
+    const data=await response.json();
+    return data.ok===true&&data.ready===true;
+  }catch{return false}
+}
+async function scriptRequest(action,body={}){
+  const response=await fetch(process.env.APPS_SCRIPT_URL,{
+    method:'POST',
+    headers:{'content-type':'text/plain;charset=utf-8'},
+    body:JSON.stringify({secret:process.env.APPS_SCRIPT_SHARED_SECRET,action,...body}),
+    redirect:'follow'
+  });
+  const contentType=response.headers.get('content-type')||'';
+  if(!response.ok||!contentType.includes('json'))throw new Error('Apps Script 未回傳 JSON，請檢查部署權限與 /exec 網址');
+  const result=await response.json();
+  if(!result.ok)throw new Error('Apps Script 操作失敗：'+(result.error||'未知錯誤'));
+  return result;
+}
 const base64url = data => Buffer.from(JSON.stringify(data)).toString('base64url');
 async function googleToken(account) {
   if (cachedToken?.email === account.client_email && cachedToken.expires > Date.now()) return cachedToken.value;
@@ -47,6 +73,7 @@ async function sheets(path, options={}) {
   return result;
 }
 async function ensureSheets(){
+  if(usingScript())return;
   if(bootstrapped)return;
   const book=await sheets('?fields=sheets.properties.title');
   const existing=new Set((book.sheets||[]).map(s=>s.properties.title));
@@ -59,16 +86,19 @@ async function ensureSheets(){
   bootstrapped=true;
 }
 async function rows(name){
+  if(usingScript())return (await scriptRequest('list',{name})).rows;
   await ensureSheets();
   const result=await sheets('/values/'+encodeURIComponent(name+'!A:Z'));
   const headers=SHEETS[name];
   return (result.values||[]).slice(1).map((r,i)=>({...Object.fromEntries(headers.map((key,j)=>[key,r[j]||''])),_row:i+2}));
 }
 async function append(name,item){
+  if(usingScript()){await scriptRequest('append',{name,item});return}
   await ensureSheets();
   await sheets('/values/'+encodeURIComponent(name+'!A:Z')+':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS',{method:'POST',body:JSON.stringify({values:[SHEETS[name].map(key=>item[key]||'')]})});
 }
 async function update(name,row,col,value){
+  if(usingScript()){await scriptRequest('update',{name,row,col,value});return}
   const letter=String.fromCharCode(65+SHEETS[name].indexOf(col));
   await sheets('/values/'+encodeURIComponent(name+'!'+letter+row)+'?valueInputOption=RAW',{method:'PUT',body:JSON.stringify({values:[[value]]})});
 }
@@ -109,7 +139,10 @@ export default async function handler(req,res){
   const url=new URL(req.url,'https://local.invalid');
   const path=url.pathname.replace(/^\/api\/?/,'').split('/').filter(Boolean);
   try{
-    if(path[0]==='health'&&req.method==='GET')return send(res,200,{ready:!!(process.env.GOOGLE_SHEET_ID&&process.env.GOOGLE_SERVICE_ACCOUNT_JSON&&process.env.LINE_CHANNEL_ID)});
+    if(path[0]==='health'&&req.method==='GET'){
+      const configured=!!(process.env.LINE_CHANNEL_ID&&(usingScript()?process.env.APPS_SCRIPT_SHARED_SECRET:process.env.GOOGLE_SHEET_ID&&process.env.GOOGLE_SERVICE_ACCOUNT_JSON));
+      return send(res,200,{ready:configured&&(usingScript()?await scriptHealth():true)});
+    }
     env();
     if(path[0]==='queue'&&req.method==='GET'){
       const all=(await rows('appointments')).filter(a=>a.temple_id===templeId&&a.date===today()&&a.status!=='已取消');
@@ -122,7 +155,7 @@ export default async function handler(req,res){
     if(path[0]==='me'&&req.method==='GET')return send(res,200,{admin});
     if(path[0]==='records'&&path[1]&&maps[path[1]]&&req.method==='POST'){
       const kind=path[1],fields=valid(kind,req.body);
-      const record={...fields,id:randomUUID(),temple_id:templeId,line_user_id:user,status:'待確認',created_at:new Date().toISOString()};
+      const record={...fields,id:randomUUID(),temple_id:templeId,line_user_id:user,status:'待確認',created_at:new Date().toISOString(),...(kind==='lights'?{payment_method:'LINE Pay',payment_status:'未付款'}:{})};
       await append(kind,record);
       return send(res,201,{id:record.id,status:record.status});
     }
