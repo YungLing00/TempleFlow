@@ -42,3 +42,25 @@ test('writes an application to the sheet and returns only own records',async()=>
   assert.equal((await call('GET','/api/mine',{},'admin')).data.records.length,0);
   assert.equal((await call('GET','/api/admin/records',{},'admin')).data.records.length,1);
 });
+test('Apps Script adapter writes with server secret and rejects sign-in HTML',async()=>{
+  process.env.APPS_SCRIPT_URL='https://script.google.com/macros/s/test/exec';
+  process.env.APPS_SCRIPT_SHARED_SECRET='test-private-secret';
+  const original=global.fetch;
+  let request;
+  global.fetch=async(url,options={})=>{
+    if(String(url).includes('api.line.me'))return {ok:true,json:async()=>({sub:'Uuser'})};
+    request=JSON.parse(options.body);
+    return {ok:true,headers:{get:()=> 'application/json'},json:async()=>({ok:true})};
+  };
+  const response=await call('POST','/api/records/lights',{name:'苓苓',phone:'0912345678',type:'光明燈'},'user');
+  assert.equal(response.code,201);
+  assert.equal(request.secret,'test-private-secret');
+  assert.equal(request.item.payment_method,'LINE Pay');
+  assert.equal(request.item.payment_status,'未付款');
+  global.fetch=async url=>String(url).includes('api.line.me')?{ok:true,json:async()=>({sub:'Uuser'})}:{ok:true,headers:{get:()=> 'text/html'}};
+  const failed=await call('POST','/api/records/lights',{name:'苓苓',phone:'0912345678',type:'光明燈'},'user');
+  assert.equal(failed.code,503);
+  global.fetch=original;
+  delete process.env.APPS_SCRIPT_URL;
+  delete process.env.APPS_SCRIPT_SHARED_SECRET;
+});
