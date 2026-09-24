@@ -1,40 +1,51 @@
 # 廟管家 TempleFlow
 
-LINE LIFF 宮廟服務測試版。前端是靜態 HTML / JavaScript；後端為 Vercel Node API，Google Sheets 儲存登記紀錄，可匯出 CSV 以 Excel 開啟。此專案以澎湖溫王宮作為設計情境，目前並非溫王宮正式服務。
+LINE LIFF 宮廟服務測試版。前端靜態網站，Vercel Node API 驗證 LINE 身分與管理員權限；試算表可透過 **Google Apps Script** 儲存資料，再用 Excel 開啟匯出的 CSV。以澎湖溫王宮為設計情境，尚未成為宮廟正式服務。
 
-## 功能
+## 已完成
 
-- LINE 登入後填寫問事預約、點燈、志工報名、進香申請，並查看自己的申請與狀態。
-- 管理員由 LINE 使用者 ID 白名單授權，可檢視登記、更新審核狀態、操作今日叫號。
-- 管理員可匯出 UTF-8 CSV 於 Excel 編輯，再匯入**狀態欄**。匯入不更新姓名、電話或其他欄位；一次至多 100 筆。
-- Google Sheets 內自動建立 `appointments`、`lights`、`volunteers`、`pilgrimages`、`settings` 工作表。只供單一示範宮廟使用。
+- 問事預約、點燈登記、志工報名、進香申請；LINE 登入後查看自己的申請。
+- 指定 LINE 管理員審核、今日叫號、CSV 名冊匯出與審核狀態 CSV 匯入。
+- 點燈付款方式紀錄為 **LINE Pay／未付款**。目前**沒有 LINE Pay 付款連結、扣款或付款確認**，請勿宣稱付款完成。
+- 試算表自動建立 `appointments`、`lights`、`volunteers`、`pilgrimages`、`settings` 工作表；僅供單一示範宮廟使用。
 
-## 部署步驟
+## 你提供的 Apps Script 網址
 
-1. 在 Google Cloud 建立專案、啟用 **Google Sheets API**、建立**服務帳號**及 JSON 金鑰。不要上傳金鑰到 GitHub。
-2. 在 Google Sheets 建立**全新空白試算表**，把服務帳號的 `client_email` 加入共用，授予**編輯者**；網址 `/spreadsheets/d/` 後面的字串是 `GOOGLE_SHEET_ID`。
-3. 在 Vercel 從 GitHub 匯入本儲存庫。Framework Preset 選 **Other**，Root Directory 保持預設。設定下列環境變數後部署：
+`https://script.google.com/macros/s/AKfycbyzZhjlCrckOlN8srQ3K5DeT3rnTlONeKN0jo1Vsb67H_JEb5HLoYncfFMjD7yw8_g5/exec`
+
+目前從未登入的環境讀取這個網址會跳轉至 Google 登入，故它**尚無法作為 Vercel 後端的公開資料代理**；程式也無法得知現有 Apps Script 的資料格式。須在該 Apps Script 專案中檢查原始碼，將 [apps-script/Code.gs](apps-script/Code.gs) 的協定部署為新的版本，並設定部署存取權為 **任何人**。只有伺服器持有的共用密鑰可執行資料操作，靜態網頁不能取得密鑰。
+
+## Apps Script 設定
+
+1. 建立專用 Google 試算表；複製網址中的試算表 ID。不要和其他專案共用原本的工作表。
+2. 在 Apps Script 編輯器檢查既有程式，將本儲存庫 `apps-script/Code.gs` 用於**專門的 TempleFlow 部署**；若原本腳本服務其他網站，請另建 Apps Script 專案，避免覆蓋其功能。
+3. 專案設定 → **指令碼屬性**：`TEMPLEFLOW_SHEET_ID` 填試算表 ID；`TEMPLEFLOW_SHARED_SECRET` 填長度至少 32 字元的隨機字串，且在 Vercel 設定完全相同的值。不要把密鑰提交到 GitHub 或貼到對話。
+4. 部署 → 新部署 → 網頁應用程式；**執行身分：我**、**存取權：任何人**。之後修改程式須建立新部署版本。開啟 `/exec` 時應看到 JSON `{"ok":true,"service":"TempleFlow Apps Script","ready":true}`，不能跳到 Google 登入頁。若部署取得新 URL，Vercel 的 `APPS_SCRIPT_URL` 也要同步更新。
+
+## 網站與 API 部署
+
+從 GitHub 將此儲存庫匯入 Vercel，Framework Preset 選 Other；設定以下環境變數後部署：
 
 | 名稱 | 值 |
 |---|---|
-| `GOOGLE_SHEET_ID` | 上述試算表 ID |
-| `GOOGLE_SERVICE_ACCOUNT_JSON` | 服務帳號 JSON **完整原文**，貼於 Vercel 環境變數，不要放進程式碼 |
-| `LINE_CHANNEL_ID` | `2011717805`（此 LIFF 所屬 LINE Login Channel ID；如不符，以 LINE Developers 畫面為準） |
-| `ADMIN_LINE_USER_IDS` | 管理員 LINE user ID，多位以逗號分隔；不能填顯示名稱或 LIFF ID |
-| `ALLOWED_ORIGIN` | 如果網頁仍使用 GitHub Pages：`https://yungling00.github.io`；若改用 Vercel 整站部署，可不填 |
+| `LINE_CHANNEL_ID` | LIFF 所屬 LINE Login Channel ID，例如 `2011717805`；以 LINE Developers 畫面為準 |
+| `APPS_SCRIPT_URL` | 上述已正確部署、可公開讀到 JSON 的 `/exec` 網址 |
+| `APPS_SCRIPT_SHARED_SECRET` | 與 Apps Script 指令碼屬性相同的私密隨機字串 |
+| `ADMIN_LINE_USER_IDS` | 管理員的 LINE user ID（`U` 開頭），多人用逗號分隔 |
+| `ALLOWED_ORIGIN` | 若網頁在 GitHub Pages：`https://yungling00.github.io`；整站在 Vercel 則可省略 |
 
-4. 最簡單的方式是**整站使用 Vercel 網址**，例如 `https://templeflow-example.vercel.app/`。將 LINE Developers 中這個 LIFF 的 **Endpoint URL** 改成 Vercel HTTPS 網址（含結尾斜線）。這樣 `config.js` 不用修改，前端自動呼叫同網域 `/api`。如果堅持 GitHub Pages 當前端，則把 `config.js` 的 `TEMPLEFLOW_API_BASE` 改成 Vercel 網址，並設定 `ALLOWED_ORIGIN`。
-5. 先開啟 `https://你的-vercel-網址/api/health`，確認顯示 `{"ready":true}`；再從 `https://liff.line.me/2011717805-j1WLn24W` 以 LINE 開啟、送出一筆測試申請，檢查 Google Sheet 是否有紀錄。管理員須提供自己的 LINE user ID 加入環境變數，重新部署後才會看到後台。
+最簡單的部署是整站使用 Vercel 網址，`config.js` 保持空字串，並把 LINE Developers 的 LIFF Endpoint URL 改成 Vercel 首頁 HTTPS 網址（含結尾斜線）。若繼續用 GitHub Pages 當前端，將 `config.js` 的 `TEMPLEFLOW_API_BASE` 改成實際 Vercel 網址；GitHub Pages 自己不能執行 `/api`。
 
-> `ready:true` 只代表環境變數齊全，**不代表已驗證 Google 授權**；仍需完成一次 LINE 登入及測試寫入。LIFF ID 可公開，服務帳號 JSON 不可公開。
+開啟 Vercel `/api/health` 確認 `ready:true`，再從 LINE 開啟 LIFF，送出一筆測試資料，看試算表是否出現。`ready:true` 只檢查設定是否存在，不代表 Apps Script 寫入已成功。
 
-## 本機開發
+## 另一種試算表後端
 
-Node.js 20 以上。將 `.env.example` 複製成 `.env` 後以環境變數載入（Node 原生 `node --env-file=.env server.js`）；或直接 `npm run dev` 在未設定後端的情況檢視畫面。開啟 `http://localhost:3000/`。LINE Developers 的 LIFF Endpoint 必須是 HTTPS，故本機測試登入需透過 HTTPS 測試網域。
+若不採用 Apps Script，也可使用原本的 Google Sheets API 服務帳號模式：**不要設定** `APPS_SCRIPT_URL`，改填 `GOOGLE_SHEET_ID`、`GOOGLE_SERVICE_ACCOUNT_JSON`，把服務帳號設為試算表編輯者。兩種模式擇一。服務帳號 JSON 僅存 Vercel 環境變數。
 
-## 上線前要處理
+## 本機測試
 
-- 宮廟需確認服務內容、實際辦事時間、收件權限與個資告知事項。現階段不收款、不分配正式燈位，不提供 AI 解籤、LINE OA 通知、QR 簽到或武轎定位。
-- Google Sheets 適合原型與低量營運；大量使用、跨宮廟隔離與同時編號分配應改用交易式資料庫。
-- Vercel 函式可能同時初始化工作表；第一次部署先由單人測試一筆後再開放使用。
-- 管理員請定期備份試算表並限制共用對象；遺失服務帳號金鑰請立即撤銷並輪替。
+Node.js 20+：`npm test`。用 `node --env-file=.env server.js` 可在本機啟動測試網站。LIFF Endpoint 必須是 HTTPS，因此本機瀏覽器不能直接完成正式 LINE 登入。
+
+## 上線限制
+
+這是測試版，尚待宮廟確認服務時間、個資告知與管理權限。不提供正式付款、LINE OA 推播、AI 解籤、燈位分配、QR 簽到或武轎定位。Google Sheets 適用原型及低量使用，大量使用或多宮廟隔離應遷移至交易式資料庫。
