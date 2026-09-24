@@ -11,6 +11,7 @@
 - 「我的申請」僅顯示這台裝置存下的申請收據，尚無跨裝置紀錄查詢。
 - 元宵乞龜可填寫姓名、電話、品項、日期及簡短祈願，送出後取得完整編號；同一 LINE 帳號可持編號查詢狀態或回報已還願。回報狀態為「已回報還願，待廟方確認」；指定管理員現場核對後，可在乞龜頁按「確認已還願」，更新試算表 `turtles` 的 `fulfillment_status` 欄。
 - 武轎定位僅限 `ADMIN_LINE_USER_IDS` 指定的 LINE 管理員主動授權定位與分享；前台顯示地圖連結及更新時間，超過五分鐘未更新會隱藏，管理員也可手動停止。位置不是安全或交通導航依據。
+- 抽籤頁提供 12 首**原創示範籤詩**（不是溫王宮正式籤本），不用登入即可隨機抽籤、看白話提醒。若需 AI 解籤，必須將 OpenAI API key 設在 Apps Script 的指令碼屬性 `OPENAI_API_KEY`，並更新網頁應用程式部署版本；前端不存放金鑰。可另設 `OPENAI_MODEL`（預設 `gpt-4.1-mini`）。只送出籤詩、主題與使用者自願輸入的問題，不送姓名或電話；需勾選同意並以 LINE 登入，每帳號最多每小時五次。沒有金鑰時抽籤仍可使用，AI 區會標示尚未啟用。此功能會產生 API 用量費用，請自行在 OpenAI Platform 設定預算。
 
 ## 必須完成的 Apps Script 設定
 
@@ -18,7 +19,7 @@ GitHub 前端已在 [config.js](config.js) 填入你提供的 `/exec`：
 
 `https://script.google.com/macros/s/AKfycbyzZhjlCrckOlN8srQ3K5DeT3rnTlONeKN0jo1Vsb67H_JEb5HLoYncfFMjD7yw8_g5/exec`
 
-2026-09-24 再次以未登入環境檢查：網址已可公開開啟，但回應「找不到以下指令碼函式：doGet」，仍**不能收件**。公開存取與部署程式碼是兩個獨立步驟。請完成以下設定：
+2026-09-24 已在未登入環境確認舊版 `/exec` 回傳 `ready:true`，但尚未以 LINE 實際送件驗證。本次新增抽籤 AI 後，**必須再次將新版 `Code.gs` 更新到同一個 Apps Script 專案並更新部署版本**；抽籤基本功能可先在 GitHub 網頁使用，AI 解籤需另外設定金鑰。公開存取與部署新版程式碼是兩個獨立步驟。
 
 1. 在 Google 試算表建立**TempleFlow 專用的全新空白檔**，複製網址 `/d/` 與 `/edit` 中間的試算表 ID。不要把舊專案資料表當成新表單資料庫。
 2. 開啟這個 `/exec` 對應的 Apps Script 專案。如果它原本服務其他網站，**另建新專案**，不要覆蓋舊程式。將 [apps-script/Code.gs](apps-script/Code.gs) 貼入專用專案。
