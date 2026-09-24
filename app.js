@@ -16,6 +16,7 @@
     if(tab==='admin'&&admin)loadAdmin();
     if(tab==='mine')loadMine();
     if(tab==='parade')loadParade();
+    if(tab==='fortune')loadFortunes();
   }
   document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.tab)));
   async function api(path,opts={}){
@@ -67,7 +68,10 @@
     if(!ready){
       status.textContent='表單後端尚未啟用';
       $('#serviceNotice').textContent='線上登記目前暫停收件。服務啟用前，表單不會送出資料；乞龜與定位也不會提供即時資料。';
-    }else document.querySelectorAll('form button[type="submit"]').forEach(x=>x.disabled=false);
+    }else{
+      document.querySelectorAll('form button[type="submit"]').forEach(x=>x.disabled=false);
+      $('#serviceNotice').textContent='Apps Script 已連線；此站為測試版本，正式宮廟服務以廟方公告為準。';
+    }
     if(!window.liff){status.textContent=ready?'LINE SDK 無法載入':'後端尚未啟用';return}
     try{
       await liff.init({liffId:LIFF_ID});
@@ -198,6 +202,78 @@
       $('#adminMessage').textContent='已更新 '+result.updated+' 筆狀態';loadAdmin();
     }catch(err){$('#adminMessage').textContent='匯入失敗：'+err.message}
     finally{e.target.value=''}
+  });
+  let fortunes=null,chosenFortune=null,fortuneAiReady=false,fortuneAiChecked=false;
+  function renderFortune(){
+    $('#fortuneNumber').textContent='第 '+chosenFortune.number+' 籤 · 原創示範';
+    $('#fortuneTitle').textContent=chosenFortune.title;
+    $('#fortunePoem').textContent=chosenFortune.poem;
+    $('#fortuneMeaning').textContent='白話提醒：'+chosenFortune.meaning;
+    $('#fortuneSlip').classList.remove('hidden');
+    $('#fortuneForm').classList.remove('hidden');
+    $('#redrawFortune').classList.remove('hidden');
+    $('#fortuneAnswer').classList.add('hidden');
+    $('#fortuneAnswer').textContent='';
+    $('#fortuneQuestion').value='';
+    $('#fortuneConsent').checked=false;
+    $('#fortuneAiStatus').textContent=fortuneAiReady?'可登入 LINE 後選擇 AI 解籤；每個帳號每小時最多五次。':'AI 解籤尚未設定；目前可閱讀籤詩與白話提醒。';
+    $('#fortuneStatus').textContent='已抽得第 '+chosenFortune.number+' 籤。';
+  }
+  async function loadFortunes(){
+    if(fortunes){
+      if(DIRECT&&ready&&!fortuneAiChecked){
+        try{fortuneAiReady=(await directGet('fortune_config')).aiReady===true}catch{}
+        fortuneAiChecked=true;
+        if(chosenFortune)$('#fortuneAiStatus').textContent=fortuneAiReady?'可登入 LINE 後選擇 AI 解籤；每個帳號每小時最多五次。':'AI 解籤尚未設定；目前可閱讀籤詩與白話提醒。';
+      }
+      return;
+    }
+    $('#fortuneStatus').textContent='正在準備籤詩…';
+    try{
+      const response=await fetch('./fortunes.json');
+      if(!response.ok)throw Error('籤詩資料暫時無法載入');
+      const data=await response.json();
+      if(!Array.isArray(data)||!data.length)throw Error('籤詩資料不完整');
+      fortunes=data;
+      $('#fortuneStatus').textContent='靜心後，按下「誠心抽一支籤」。';
+      if(DIRECT&&ready){
+        try{fortuneAiReady=(await directGet('fortune_config')).aiReady===true}catch{fortuneAiReady=false}
+        fortuneAiChecked=true;
+      }
+      const remembered=Number(sessionStorage.getItem('templeflow-fortune'));
+      chosenFortune=fortunes.find(item=>item.number===remembered)||null;
+      if(chosenFortune)renderFortune();
+    }catch(e){$('#fortuneStatus').textContent=e.message}
+  }
+  async function drawFortune(){
+    await loadFortunes();
+    if(!fortunes)return;
+    const pool=fortunes.length>1?fortunes.filter(item=>item.number!==chosenFortune?.number):fortunes;
+    const array=new Uint32Array(1);crypto.getRandomValues(array);
+    chosenFortune=pool[array[0]%pool.length];
+    sessionStorage.setItem('templeflow-fortune',String(chosenFortune.number));
+    renderFortune();
+  }
+  $('#drawFortune').addEventListener('click',drawFortune);
+  $('#redrawFortune').addEventListener('click',drawFortune);
+  $('#fortuneForm').addEventListener('submit',async e=>{
+    e.preventDefault();
+    const status=$('#fortuneAiStatus'),button=$('#interpretFortune');
+    if(!chosenFortune)return;
+    if(!ready||!DIRECT||!fortuneAiReady){status.textContent='AI 解籤尚未啟用；仍可閱讀上方籤詩與白話提醒。';return}
+    if(!token){status.textContent='請先使用 LINE 登入，再回到這支籤。';$('#lineLogin').classList.remove('hidden');return}
+    button.disabled=true;status.textContent='正在解讀籤詩…';
+    $('#fortuneAnswer').classList.add('hidden');
+    try{
+      const result=await directAction('interpretFortune',{
+        number:chosenFortune.number,topic:$('#fortuneTopic').value,
+        question:$('#fortuneQuestion').value.trim(),consent:$('#fortuneConsent').checked
+      });
+      $('#fortuneAnswer').textContent=result.interpretation;
+      $('#fortuneAnswer').classList.remove('hidden');
+      status.textContent='AI 解籤完成。這是參考解讀，請自行判斷。';
+    }catch(err){status.textContent='AI 解籤失敗：'+err.message}
+    finally{button.disabled=false}
   });
   async function turtleTrack(report=false){
     const target=$('#turtleResult'),id=$('#turtleId').value.trim();
