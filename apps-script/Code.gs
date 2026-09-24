@@ -210,7 +210,7 @@ function turtleAction_(body){
   }finally{lock.releaseLock()}
 }
 function isAdmin_(user){
-  const ids=PropertiesService.getScriptProperties().getProperty('ADMIN_LINE_USER_IDS')||'';
+  const ids=PropertiesService.getScriptProperties().getProperty('TEMPLEFLOW_ADMIN_LINE_USER_IDS')||'';
   return ids.split(',').map(x=>x.trim()).filter(Boolean).includes(user);
 }
 function locationAction_(body){
