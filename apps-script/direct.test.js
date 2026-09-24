@@ -5,9 +5,10 @@ import {runInNewContext} from 'node:vm';
 
 test('direct GitHub form verifies LINE, writes once and returns a minimal receipt',()=>{
   const cache=new Map(),sheets=new Map();
+  let adminIds='Utest';
   const context={
     ContentService:{MimeType:{JSON:'json',JAVASCRIPT:'javascript'},createTextOutput(text){return {text,setMimeType(type){this.mime=type;return this}}}},
-    PropertiesService:{getScriptProperties(){return {getProperty(key){return {TEMPLEFLOW_SHEET_ID:'sheet',LINE_CHANNEL_ID:'2011717805',ADMIN_LINE_USER_IDS:'Utest'}[key]}}}},
+    PropertiesService:{getScriptProperties(){return {getProperty(key){return key==='ADMIN_LINE_USER_IDS'?adminIds:{TEMPLEFLOW_SHEET_ID:'sheet',LINE_CHANNEL_ID:'2011717805'}[key]}}}},
     UrlFetchApp:{fetch(url,options){assert.match(url,/api.line.me/);assert.equal(options.payload.client_id,'2011717805');return {getResponseCode:()=>200,getContentText:()=>JSON.stringify({sub:'Utest'})}}},
     LockService:{getScriptLock(){return {waitLock(){},releaseLock(){}}}},
     CacheService:{getScriptCache(){return {put(k,v){cache.set(k,v)},get(k){return cache.get(k)||null}}}},
@@ -42,7 +43,12 @@ test('direct GitHub form verifies LINE, writes once and returns a minimal receip
   const status={action:'turtleStatus',id:'saved-uuid',idToken:'line-token',requestId:'12345678-1234-1234-1234-123456789abe'};
   assert.equal(JSON.parse(context.doPost({postData:{contents:JSON.stringify(status)}}).text).fulfillmentStatus,'尚未還願');
   assert.equal(JSON.parse(context.doPost({postData:{contents:JSON.stringify({...status,action:'reportFulfillment'})}}).text).fulfillmentStatus,'已回報還願，待廟方確認');
+  assert.equal(JSON.parse(context.doPost({postData:{contents:JSON.stringify({...status,action:'approveFulfillment'})}}).text).fulfillmentStatus,'已確認還願');
   const update={action:'updateLocation',idToken:'line-token',requestId:'12345678-1234-1234-1234-123456789abf',lat:23.57,lng:119.57};
+  adminIds='';
+  assert.equal(JSON.parse(context.doPost({postData:{contents:JSON.stringify(update)}}).text).ok,false);
+  assert.equal(JSON.parse(context.doPost({postData:{contents:JSON.stringify({...status,action:'approveFulfillment'})}}).text).ok,false);
+  adminIds='Utest';
   assert.equal(JSON.parse(context.doPost({postData:{contents:JSON.stringify(update)}}).text).active,true);
   assert.equal(JSON.parse(context.doGet({parameter:{action:'location'}}).text).lat,23.57);
   assert.equal(JSON.parse(context.doPost({postData:{contents:JSON.stringify({...update,action:'stopLocation'})}}).text).active,false);
