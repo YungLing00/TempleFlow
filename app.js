@@ -5,7 +5,7 @@
   const DIRECT=(window.TEMPLEFLOW_APPS_SCRIPT_URL||'').trim();
   const $=s=>document.querySelector(s);
   const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  let token='', admin=false, ready=false;
+  let token='', admin=false, ready=false, selfLineId='', paradeRefreshTimer=null;
   const today=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
   document.querySelectorAll('input[type="date"]').forEach(x=>x.min=today());
   function go(tab) {
@@ -15,10 +15,34 @@
     if(tab==='queue')loadQueue();
     if(tab==='admin'&&admin)loadAdmin();
     if(tab==='mine')loadMine();
-    if(tab==='parade')loadParade();
+    if(paradeRefreshTimer){clearInterval(paradeRefreshTimer);paradeRefreshTimer=null}
+    if(tab==='parade'){
+      loadParade();
+      paradeRefreshTimer=setInterval(()=>{if(document.visibilityState==='visible')loadParade()},30000);
+    }
     if(tab==='fortune')loadFortunes();
   }
   document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.tab)));
+  const homeCards=[...document.querySelectorAll('#home .grid .card')];
+  const filterGroups=['daily','daily','join','join','festival','festival'];
+  const filterHints={all:'從下面選一項服務，開始你的 TempleFlow 旅程。',daily:'想先安排參拜？問事預約與點燈都在這裡。',join:'想一起參與？看看志工報名與進香接待。',festival:'走進節慶現場：抽一支籤，或查看武轎的即時位置。'};
+  document.querySelectorAll('[data-filter]').forEach(button=>button.addEventListener('click',()=>{
+    const selected=button.dataset.filter;
+    document.querySelectorAll('[data-filter]').forEach(item=>{
+      const active=item===button;item.classList.toggle('selected',active);item.setAttribute('aria-pressed',String(active));
+    });
+    homeCards.forEach((card,i)=>card.classList.toggle('hidden',selected!=='all'&&filterGroups[i]!==selected));
+    $('#serviceHint').textContent=filterHints[selected];
+  }));
+  const hero=document.querySelector('.hero');
+  if(window.matchMedia('(pointer:fine) and (prefers-reduced-motion:no-preference)').matches){
+    hero.addEventListener('pointermove',e=>{
+      const box=hero.getBoundingClientRect();
+      hero.style.setProperty('--mx',((e.clientX-box.left)/box.width*100).toFixed(1)+'%');
+      hero.style.setProperty('--my',((e.clientY-box.top)/box.height*100).toFixed(1)+'%');
+    });
+    hero.addEventListener('pointerleave',()=>{hero.style.removeProperty('--mx');hero.style.removeProperty('--my')});
+  }
   async function api(path,opts={}){
     const r=await fetch(BASE+'/api/'+path,{...opts,headers:{'content-type':'application/json',...(token?{authorization:'Bearer '+token}:{}),...opts.headers}});
     let body={};
@@ -94,6 +118,8 @@
         $('#turtleAdmin').classList.toggle('hidden',!admin);
       }
       const profile=await liff.getProfile();
+      selfLineId=profile.userId||'';
+      $('#paradeIdentity').classList.remove('hidden');
       status.textContent='LINE 已登入：'+profile.displayName+(ready?'':' · 後端尚未啟用');
       $('#lineLogout').classList.remove('hidden');
       $('#adminTab').classList.toggle('hidden',!admin||!!DIRECT);
@@ -246,13 +272,25 @@
     }catch(e){$('#fortuneStatus').textContent=e.message}
   }
   async function drawFortune(){
+    const button=$('#drawFortune'),again=$('#redrawFortune');
+    if(button.disabled)return;
+    button.disabled=true;again.disabled=true;
+    $('#fortuneSlip').classList.add('hidden');$('#fortuneForm').classList.add('hidden');
+    $('#fortuneStatus').textContent='籤筒輕搖中…';
+    $('#fortune').classList.add('drawing');
+    try{
     await loadFortunes();
     if(!fortunes)return;
+    if(!window.matchMedia('(prefers-reduced-motion:reduce)').matches)
+      await new Promise(resolve=>setTimeout(resolve,950));
     const pool=fortunes.length>1?fortunes.filter(item=>item.number!==chosenFortune?.number):fortunes;
     const array=new Uint32Array(1);crypto.getRandomValues(array);
     chosenFortune=pool[array[0]%pool.length];
     sessionStorage.setItem('templeflow-fortune',String(chosenFortune.number));
     renderFortune();
+    $('#fortuneSlip').classList.add('just-drawn');
+    setTimeout(()=>$('#fortuneSlip').classList.remove('just-drawn'),900);
+    }finally{button.disabled=false;again.disabled=false;$('#fortune').classList.remove('drawing')}
   }
   $('#drawFortune').addEventListener('click',drawFortune);
   $('#redrawFortune').addEventListener('click',drawFortune);
@@ -305,44 +343,86 @@
     $('#turtleId').value=button.dataset.turtleId;go('turtle');turtleTrack();
   });
   async function loadParade(){
-    const status=$('#paradeStatus'),map=$('#paradeMap');
-    map.classList.add('hidden');$('#paradeUpdated').textContent='';
+    const status=$('#paradeStatus'),map=$('#paradeMap'),embed=$('#paradeEmbed');
+    const waiting=$('#paradeMapWaiting'),badge=$('#paradeLiveBadge');
     if(!ready||!DIRECT){status.textContent='定位服務尚未啟用';return}
-    status.textContent='正在讀取位置…';
+    if(embed.classList.contains('hidden'))status.textContent='正在讀取位置…';
     try{
       const result=await directGet('location');
-      if(!result.ok||!result.active){status.textContent='目前沒有公開的武轎位置';return}
-      status.textContent='武轎位置已更新';
+      const lat=Number(result.lat),lng=Number(result.lng);
+      if(!result.ok||!result.active||!Number.isFinite(lat)||!Number.isFinite(lng)||Math.abs(lat)>90||Math.abs(lng)>180){
+        status.textContent='目前沒有公開的武轎位置';
+        map.classList.add('hidden');embed.classList.add('hidden');waiting.classList.remove('hidden');
+        $('#paradeUpdated').textContent='';$('#paradeAccuracy').textContent='';
+        badge.textContent='● 目前未分享';badge.classList.remove('is-live');
+        return;
+      }
+      const bbox=[lng-.006,lat-.004,lng+.006,lat+.004].join(',');
+      const nextSrc='https://www.openstreetmap.org/export/embed.html?'+new URLSearchParams({bbox,layer:'mapnik',marker:lat+','+lng});
+      if(embed.src!==nextSrc)embed.src=nextSrc;
+      embed.classList.remove('hidden');waiting.classList.add('hidden');
+      badge.textContent='● 武轎位置分享中';badge.classList.add('is-live');
+      status.textContent='位置由隨行管理員手機提供';
       $('#paradeUpdated').textContent='更新時間：'+new Date(result.updatedAt).toLocaleString('zh-TW',{timeZone:'Asia/Taipei'});
-      map.href='https://www.google.com/maps?q='+encodeURIComponent(result.lat+','+result.lng);
+      $('#paradeAccuracy').textContent=Number.isFinite(Number(result.accuracy))&&result.accuracy!==undefined?'手機定位誤差約 '+Math.round(Number(result.accuracy))+' 公尺':'';
+      map.href='https://www.google.com/maps?q='+encodeURIComponent(lat+','+lng);
       map.classList.remove('hidden');
     }catch(e){status.textContent='無法取得位置：'+e.message}
   }
   $('#refreshParade').addEventListener('click',loadParade);
-  let paradeWatch=null,paradeLastSent=0,paradeBusy=false,paradeStopping=false;
+  $('#showMyLineId').addEventListener('click',()=>{
+    $('#myLineId').textContent=selfLineId||'尚未取得 LINE 使用者 ID，請重新登入';
+    $('#copyMyLineId').classList.toggle('hidden',!selfLineId);
+  });
+  $('#copyMyLineId').addEventListener('click',async()=>{
+    try{await navigator.clipboard.writeText(selfLineId);$('#myLineId').textContent='已複製：'+selfLineId}
+    catch{$('#myLineId').textContent='無法自動複製，請手動複製：'+selfLineId}
+  });
+  let paradeWatch=null,paradeHeartbeat=null,paradeLastSent=0,paradeBusy=false,paradeStopping=false;
+  const positionOptions={enableHighAccuracy:true,maximumAge:10000,timeout:20000};
+  function stopPhoneLocation(){
+    if(paradeWatch!==null){navigator.geolocation.clearWatch(paradeWatch);paradeWatch=null}
+    if(paradeHeartbeat!==null){clearInterval(paradeHeartbeat);paradeHeartbeat=null}
+    $('#startParade').disabled=false;$('#stopParade').disabled=true;
+  }
+  function locationError(error){
+    $('#paradeAdminStatus').textContent='定位失敗：'+error.message;
+    if(error.code===1)stopPhoneLocation();
+  }
+  function refreshPhoneLocation(){
+    if(paradeWatch!==null&&document.visibilityState==='visible'&&!paradeStopping)
+      navigator.geolocation.getCurrentPosition(publishPosition,locationError,positionOptions);
+  }
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState==='visible'){
+      if(document.querySelector('#parade').classList.contains('active'))loadParade();
+      refreshPhoneLocation();
+    }
+  });
   async function publishPosition(position){
     if(paradeBusy||paradeStopping||Date.now()-paradeLastSent<30000)return;
     paradeBusy=true;
     try{
-      await directAction('updateLocation',{lat:position.coords.latitude,lng:position.coords.longitude});
+      await directAction('updateLocation',{lat:position.coords.latitude,lng:position.coords.longitude,accuracy:position.coords.accuracy});
       paradeLastSent=Date.now();$('#paradeAdminStatus').textContent='分享中，上次更新：'+new Date().toLocaleTimeString('zh-TW');
-      loadParade();
+      if(document.querySelector('#parade').classList.contains('active'))loadParade();
     }catch(e){$('#paradeAdminStatus').textContent='位置更新失敗：'+e.message}
     finally{paradeBusy=false}
   }
   $('#startParade').addEventListener('click',()=>{
     if(!admin||!ready||!DIRECT)return;
+    if(!window.isSecureContext){$('#paradeAdminStatus').textContent='請在 HTTPS 網頁開啟定位';return}
     if(!navigator.geolocation){$('#paradeAdminStatus').textContent='此裝置不支援定位';return}
     if(paradeWatch!==null)return;
+    paradeLastSent=0;
     $('#paradeAdminStatus').textContent='正在取得定位權限…';
-    paradeWatch=navigator.geolocation.watchPosition(publishPosition,error=>{
-      $('#paradeAdminStatus').textContent='定位失敗：'+error.message;
-      if(error.code===1&&paradeWatch!==null){navigator.geolocation.clearWatch(paradeWatch);paradeWatch=null}
-    },{enableHighAccuracy:true,maximumAge:10000,timeout:20000});
+    paradeWatch=navigator.geolocation.watchPosition(publishPosition,locationError,positionOptions);
+    paradeHeartbeat=setInterval(refreshPhoneLocation,30000);
+    $('#startParade').disabled=true;$('#stopParade').disabled=false;
   });
   $('#stopParade').addEventListener('click',async()=>{
     if(!admin||!ready||!DIRECT)return;
-    if(paradeWatch!==null){navigator.geolocation.clearWatch(paradeWatch);paradeWatch=null}
+    stopPhoneLocation();
     paradeStopping=true;
     $('#paradeAdminStatus').textContent='正在停止分享…';
     try{
