@@ -15,6 +15,7 @@
     if(tab==='queue')loadQueue();
     if(tab==='admin'&&admin)loadAdmin();
     if(tab==='mine')loadMine();
+    if(tab==='parade')loadParade();
   }
   document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.tab)));
   async function api(path,opts={}){
@@ -43,10 +44,10 @@
       document.head.append(script);
     });
   }
-  async function directSubmit(kind,data){
+  async function directAction(action,details={}){
     const requestId=crypto.randomUUID();
     // Apps Script 不提供跨網域 JSON 回應；POST 後用隨機收據 ID 查詢最終寫入結果。
-    fetch(DIRECT,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'submit',requestId,idToken:token,kind,data})}).catch(()=>{});
+    fetch(DIRECT,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action,requestId,idToken:token,...details})}).catch(()=>{});
     for(let attempt=0;attempt<30;attempt++){
       await new Promise(resolve=>setTimeout(resolve,1000));
       let receipt;
@@ -58,13 +59,14 @@
     }
     throw Error('未取得寫入確認，請勿重複送出；可稍後查看試算表');
   }
+  const directSubmit=(kind,data)=>directAction('submit',{kind,data});
   async function init(){
     const status=$('#lineStatus');
     document.querySelectorAll('form button[type="submit"]').forEach(x=>x.disabled=true);
     try{ready=DIRECT?(await directGet('health')).ready:(await api('health')).ready}catch{ready=false}
     if(!ready){
       status.textContent='表單後端尚未啟用';
-      $('#serviceNotice').textContent='Apps Script 尚未公開部署或未設定試算表，表單暫停收件。';
+      $('#serviceNotice').textContent='線上登記目前暫停收件。服務啟用前，表單不會送出資料；乞龜與定位也不會提供即時資料。';
     }else document.querySelectorAll('form button[type="submit"]').forEach(x=>x.disabled=false);
     if(!window.liff){status.textContent=ready?'LINE SDK 無法載入':'後端尚未啟用';return}
     try{
@@ -82,14 +84,18 @@
         const me=await api('me');
         admin=me.admin;
       }
+      else if(ready){
+        try{admin=(await directAction('adminCheck')).admin===true}catch{admin=false}
+        $('#paradeAdmin').classList.toggle('hidden',!admin);
+      }
       const profile=await liff.getProfile();
       status.textContent='LINE 已登入：'+profile.displayName+(ready?'':' · 後端尚未啟用');
       $('#lineLogout').classList.remove('hidden');
-      $('#adminTab').classList.toggle('hidden',!admin);
+      $('#adminTab').classList.toggle('hidden',!admin||!!DIRECT);
       if(ready)loadMine();
     }catch(e){status.textContent='LINE 登入或後端驗證失敗';$('#serviceNotice').textContent=e.message;console.error(e)}
   }
-  const forms={appointmentForm:'appointments',lightForm:'lights',volunteerForm:'volunteers',pilgrimageForm:'pilgrimages'};
+  const forms={appointmentForm:'appointments',lightForm:'lights',volunteerForm:'volunteers',pilgrimageForm:'pilgrimages',turtleForm:'turtles'};
   for(const [id,kind] of Object.entries(forms)){
     const form=$('#'+id);
     form.addEventListener('submit',async e=>{
@@ -102,7 +108,7 @@
       try{
         const data=Object.fromEntries(new FormData(form));
         const saved=DIRECT?await directSubmit(kind,data):await api('records/'+kind,{method:'POST',body:JSON.stringify(data)});
-        result.textContent='已收到申請，編號 '+saved.id.slice(0,8)+'。狀態：待確認。'+(kind==='lights'?'付款方式：LINE Pay，目前未付款；尚未開放支付。':'');
+        result.textContent='已收到申請，完整編號 '+saved.id+'。狀態：待確認。'+(kind==='lights'?'付款方式：LINE Pay，目前未付款；尚未開放支付。':'')+(kind==='turtles'?' 請保留編號，供日後查詢及回報還願。':'');
         if(DIRECT){
           const receipts=JSON.parse(localStorage.getItem('templeflow-receipts')||'[]');
           receipts.unshift({id:saved.id,kind,createdAt:new Date().toISOString()});
@@ -113,13 +119,13 @@
       finally{button.disabled=false}
     });
   }
-  const names={appointments:'問事',lights:'點燈',volunteers:'志工',pilgrimages:'進香'};
+  const names={appointments:'問事',lights:'點燈',volunteers:'志工',pilgrimages:'進香',turtles:'乞龜'};
   async function loadMine(){
     const target=$('#myRecords');
     if(!target)return;
     if(DIRECT){
       const receipts=JSON.parse(localStorage.getItem('templeflow-receipts')||'[]');
-      target.innerHTML=receipts.length?receipts.map(x=>'<div class="card"><strong>'+escape(names[x.kind])+' · '+escape(x.id.slice(0,8))+'</strong><p>本裝置的申請收據 · 待廟方確認</p></div>').join(''):'這台裝置目前沒有申請收據';
+      target.innerHTML=receipts.length?receipts.map(x=>'<div class="card"><strong>'+escape(names[x.kind]||x.kind)+' · '+escape(x.id)+'</strong><p>本裝置的申請收據 · 待廟方確認</p>'+(x.kind==='turtles'?'<button class="btn alt" type="button" data-turtle-id="'+escape(x.id)+'">查詢還願進度</button>':'')+'</div>').join(''):'這台裝置目前沒有申請收據';
       return;
     }
     if(!ready||!token){target.textContent='完成後端設定並以 LINE 登入後，可查看自己的申請。';return}
@@ -191,6 +197,72 @@
       $('#adminMessage').textContent='已更新 '+result.updated+' 筆狀態';loadAdmin();
     }catch(err){$('#adminMessage').textContent='匯入失敗：'+err.message}
     finally{e.target.value=''}
+  });
+  async function turtleTrack(report=false){
+    const target=$('#turtleResult'),id=$('#turtleId').value.trim();
+    if(!ready||!DIRECT){target.textContent='乞龜查詢服務尚未啟用';return}
+    if(!token){target.textContent='請先使用原申請的 LINE 帳號登入';return}
+    if(!id){target.textContent='請輸入完整申請編號';return}
+    target.textContent=report?'正在回報還願…':'正在查詢…';
+    try{
+      if(report&&!confirm('確定已完成還願，並向廟方提交回報？')){target.textContent='已取消';return}
+      const data=await directAction(report?'reportFulfillment':'turtleStatus',{id});
+      target.textContent='申請 '+data.id+'：'+data.status+'；還願：'+data.fulfillmentStatus+'。';
+    }catch(e){target.textContent='查詢失敗：'+e.message}
+  }
+  $('#turtleTrackForm').addEventListener('submit',e=>{e.preventDefault();turtleTrack()});
+  $('#reportFulfillment').addEventListener('click',()=>turtleTrack(true));
+  $('#myRecords').addEventListener('click',e=>{
+    const button=e.target.closest('[data-turtle-id]');if(!button)return;
+    $('#turtleId').value=button.dataset.turtleId;go('turtle');turtleTrack();
+  });
+  async function loadParade(){
+    const status=$('#paradeStatus'),map=$('#paradeMap');
+    map.classList.add('hidden');$('#paradeUpdated').textContent='';
+    if(!ready||!DIRECT){status.textContent='定位服務尚未啟用';return}
+    status.textContent='正在讀取位置…';
+    try{
+      const result=await directGet('location');
+      if(!result.ok||!result.active){status.textContent='目前沒有公開的武轎位置';return}
+      status.textContent='武轎位置已更新';
+      $('#paradeUpdated').textContent='更新時間：'+new Date(result.updatedAt).toLocaleString('zh-TW',{timeZone:'Asia/Taipei'});
+      map.href='https://www.google.com/maps?q='+encodeURIComponent(result.lat+','+result.lng);
+      map.classList.remove('hidden');
+    }catch(e){status.textContent='無法取得位置：'+e.message}
+  }
+  $('#refreshParade').addEventListener('click',loadParade);
+  let paradeWatch=null,paradeLastSent=0,paradeBusy=false,paradeStopping=false;
+  async function publishPosition(position){
+    if(paradeBusy||paradeStopping||Date.now()-paradeLastSent<30000)return;
+    paradeBusy=true;
+    try{
+      await directAction('updateLocation',{lat:position.coords.latitude,lng:position.coords.longitude});
+      paradeLastSent=Date.now();$('#paradeAdminStatus').textContent='分享中，上次更新：'+new Date().toLocaleTimeString('zh-TW');
+      loadParade();
+    }catch(e){$('#paradeAdminStatus').textContent='位置更新失敗：'+e.message}
+    finally{paradeBusy=false}
+  }
+  $('#startParade').addEventListener('click',()=>{
+    if(!admin||!ready||!DIRECT)return;
+    if(!navigator.geolocation){$('#paradeAdminStatus').textContent='此裝置不支援定位';return}
+    if(paradeWatch!==null)return;
+    $('#paradeAdminStatus').textContent='正在取得定位權限…';
+    paradeWatch=navigator.geolocation.watchPosition(publishPosition,error=>{
+      $('#paradeAdminStatus').textContent='定位失敗：'+error.message;
+      if(error.code===1&&paradeWatch!==null){navigator.geolocation.clearWatch(paradeWatch);paradeWatch=null}
+    },{enableHighAccuracy:true,maximumAge:10000,timeout:20000});
+  });
+  $('#stopParade').addEventListener('click',async()=>{
+    if(!admin||!ready||!DIRECT)return;
+    if(paradeWatch!==null){navigator.geolocation.clearWatch(paradeWatch);paradeWatch=null}
+    paradeStopping=true;
+    $('#paradeAdminStatus').textContent='正在停止分享…';
+    try{
+      while(paradeBusy)await new Promise(resolve=>setTimeout(resolve,250));
+      await directAction('stopLocation');$('#paradeAdminStatus').textContent='已停止分享位置';loadParade();
+    }
+    catch(e){$('#paradeAdminStatus').textContent='停止失敗：'+e.message}
+    finally{paradeStopping=false}
   });
   init();
 })();
