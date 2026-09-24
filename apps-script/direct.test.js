@@ -44,13 +44,14 @@ test('direct GitHub form verifies LINE, writes once and returns a minimal receip
   assert.equal(JSON.parse(context.doPost({postData:{contents:JSON.stringify(status)}}).text).fulfillmentStatus,'尚未還願');
   assert.equal(JSON.parse(context.doPost({postData:{contents:JSON.stringify({...status,action:'reportFulfillment'})}}).text).fulfillmentStatus,'已回報還願，待廟方確認');
   assert.equal(JSON.parse(context.doPost({postData:{contents:JSON.stringify({...status,action:'approveFulfillment'})}}).text).fulfillmentStatus,'已確認還願');
-  const update={action:'updateLocation',idToken:'line-token',requestId:'12345678-1234-1234-1234-123456789abf',lat:23.57,lng:119.57};
+  const update={action:'updateLocation',idToken:'line-token',requestId:'12345678-1234-1234-1234-123456789abf',lat:23.57,lng:119.57,accuracy:12.7};
   adminIds='';
   assert.equal(JSON.parse(context.doPost({postData:{contents:JSON.stringify(update)}}).text).ok,false);
   assert.equal(JSON.parse(context.doPost({postData:{contents:JSON.stringify({...status,action:'approveFulfillment'})}}).text).ok,false);
   adminIds='Utest';
   assert.equal(JSON.parse(context.doPost({postData:{contents:JSON.stringify(update)}}).text).active,true);
   assert.equal(JSON.parse(context.doGet({parameter:{action:'location'}}).text).lat,23.57);
+  assert.equal(JSON.parse(context.doGet({parameter:{action:'location'}}).text).accuracy,13);
   assert.equal(JSON.parse(context.doPost({postData:{contents:JSON.stringify({...update,action:'stopLocation'})}}).text).active,false);
   assert.equal(JSON.parse(context.doGet({parameter:{action:'location'}}).text).active,false);
 });
