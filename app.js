@@ -87,6 +87,7 @@
       else if(ready){
         try{admin=(await directAction('adminCheck')).admin===true}catch{admin=false}
         $('#paradeAdmin').classList.toggle('hidden',!admin);
+        $('#turtleAdmin').classList.toggle('hidden',!admin);
       }
       const profile=await liff.getProfile();
       status.textContent='LINE 已登入：'+profile.displayName+(ready?'':' · 後端尚未啟用');
@@ -212,6 +213,17 @@
   }
   $('#turtleTrackForm').addEventListener('submit',e=>{e.preventDefault();turtleTrack()});
   $('#reportFulfillment').addEventListener('click',()=>turtleTrack(true));
+  $('#approveFulfillment').addEventListener('click',async()=>{
+    if(!admin||!ready||!DIRECT)return;
+    const id=$('#turtleAdminId').value.trim(),target=$('#turtleAdminResult');
+    if(!id){target.textContent='請輸入完整申請編號';return}
+    if(!confirm('已現場核對還願完成，確認更新這筆紀錄？'))return;
+    target.textContent='確認中…';
+    try{
+      const result=await directAction('approveFulfillment',{id});
+      target.textContent='申請 '+result.id+'：'+result.fulfillmentStatus;
+    }catch(e){target.textContent='確認失敗：'+e.message}
+  });
   $('#myRecords').addEventListener('click',e=>{
     const button=e.target.closest('[data-turtle-id]');if(!button)return;
     $('#turtleId').value=button.dataset.turtleId;go('turtle');turtleTrack();
