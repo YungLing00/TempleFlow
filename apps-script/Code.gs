@@ -228,7 +228,9 @@ function locationAction_(body){
     if(body.action==='stopLocation'){set('parade_location','');return {ok:true,active:false}}
     const lat=Number(body.lat),lng=Number(body.lng);
     if(!Number.isFinite(lat)||!Number.isFinite(lng)||lat< -90||lat>90||lng< -180||lng>180)throw new Error('定位資料不正確');
-    set('parade_location',JSON.stringify({lat,lng,updatedAt:new Date().toISOString()}));
+    const accuracy=Number(body.accuracy);
+    if(!Number.isFinite(accuracy)||accuracy<0||accuracy>100000)throw new Error('定位精度不正確');
+    set('parade_location',JSON.stringify({lat,lng,accuracy:Math.round(accuracy),updatedAt:new Date().toISOString()}));
     return {ok:true,active:true};
   }finally{lock.releaseLock()}
 }
@@ -239,8 +241,10 @@ function publicLocation_(){
   if(!raw||!raw[1])return {ok:true,active:false};
   try{
     const value=JSON.parse(raw[1]);
-    if(Date.now()-Date.parse(value.updatedAt)>5*60*1000)return {ok:true,active:false};
-    return {ok:true,active:true,lat:value.lat,lng:value.lng,updatedAt:value.updatedAt};
+    const age=Date.now()-Date.parse(value.updatedAt);
+    if(!Number.isFinite(age)||age< -60000||age>5*60*1000)return {ok:true,active:false};
+    if(!Number.isFinite(value.lat)||!Number.isFinite(value.lng)||Math.abs(value.lat)>90||Math.abs(value.lng)>180)return {ok:true,active:false};
+    return {ok:true,active:true,lat:value.lat,lng:value.lng,updatedAt:value.updatedAt,accuracy:value.accuracy};
   }catch{return {ok:true,active:false}}
 }
 function proxy_(body){
