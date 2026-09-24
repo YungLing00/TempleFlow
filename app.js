@@ -2,6 +2,7 @@
   'use strict';
   const LIFF_ID='2011717805-j1WLn24W';
   const BASE=(window.TEMPLEFLOW_API_BASE||'').replace(/\/$/,'');
+  const DIRECT=(window.TEMPLEFLOW_APPS_SCRIPT_URL||'').trim();
   const $=s=>document.querySelector(s);
   const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   let token='', admin=false, ready=false;
@@ -23,14 +24,48 @@
     if(!r.ok)throw Error(body.error||'服務暫時無法使用');
     return body;
   }
+  function directGet(action,requestId,timeout=8000){
+    return new Promise((resolve,reject)=>{
+      const callback='templeflow_cb_'+crypto.randomUUID().replace(/-/g,'');
+      const script=document.createElement('script');
+      const timer=setTimeout(()=>done(Error('Apps Script 回應逾時')),timeout);
+      function done(error,data){
+        clearTimeout(timer);script.remove();delete window[callback];
+        error?reject(error):resolve(data);
+      }
+      window[callback]=data=>done(null,data);
+      script.onerror=()=>done(Error('Apps Script 無法連線，請檢查部署存取權'));
+      const url=new URL(DIRECT);
+      url.searchParams.set('action',action);
+      url.searchParams.set('callback',callback);
+      if(requestId)url.searchParams.set('requestId',requestId);
+      script.src=url.href;
+      document.head.append(script);
+    });
+  }
+  async function directSubmit(kind,data){
+    const requestId=crypto.randomUUID();
+    // Apps Script 不提供跨網域 JSON 回應；POST 後用隨機收據 ID 查詢最終寫入結果。
+    fetch(DIRECT,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'submit',requestId,idToken:token,kind,data})}).catch(()=>{});
+    for(let attempt=0;attempt<30;attempt++){
+      await new Promise(resolve=>setTimeout(resolve,1000));
+      let receipt;
+      try{receipt=await directGet('receipt',requestId,5000)}catch{continue}
+      if(!receipt.pending){
+        if(!receipt.ok)throw Error(receipt.error||'表單寫入失敗');
+        return receipt;
+      }
+    }
+    throw Error('未取得寫入確認，請勿重複送出；可稍後查看試算表');
+  }
   async function init(){
     const status=$('#lineStatus');
-    try{ready=(await api('health')).ready}catch{ready=false}
+    document.querySelectorAll('form button[type="submit"]').forEach(x=>x.disabled=true);
+    try{ready=DIRECT?(await directGet('health')).ready:(await api('health')).ready}catch{ready=false}
     if(!ready){
-      status.textContent='後端尚未啟用';
-      $('#serviceNotice').textContent='目前尚未完成後端設定，表單暫停收件。';
-      document.querySelectorAll('form button[type="submit"]').forEach(x=>x.disabled=true);
-    }
+      status.textContent='表單後端尚未啟用';
+      $('#serviceNotice').textContent='Apps Script 尚未公開部署或未設定試算表，表單暫停收件。';
+    }else document.querySelectorAll('form button[type="submit"]').forEach(x=>x.disabled=false);
     if(!window.liff){status.textContent=ready?'LINE SDK 無法載入':'後端尚未啟用';return}
     try{
       await liff.init({liffId:LIFF_ID});
@@ -43,8 +78,10 @@
       }
       token=liff.getIDToken();
       if(!token)throw Error('缺少 LINE ID token，請確認 openid 權限');
-      const me=await api('me');
-      admin=me.admin;
+      if(!DIRECT){
+        const me=await api('me');
+        admin=me.admin;
+      }
       const profile=await liff.getProfile();
       status.textContent='LINE 已登入：'+profile.displayName+(ready?'':' · 後端尚未啟用');
       $('#lineLogout').classList.remove('hidden');
@@ -64,8 +101,13 @@
       button.disabled=true;result.textContent='送出中…';
       try{
         const data=Object.fromEntries(new FormData(form));
-        const saved=await api('records/'+kind,{method:'POST',body:JSON.stringify(data)});
+        const saved=DIRECT?await directSubmit(kind,data):await api('records/'+kind,{method:'POST',body:JSON.stringify(data)});
         result.textContent='已收到申請，編號 '+saved.id.slice(0,8)+'。狀態：待確認。'+(kind==='lights'?'付款方式：LINE Pay，目前未付款；尚未開放支付。':'');
+        if(DIRECT){
+          const receipts=JSON.parse(localStorage.getItem('templeflow-receipts')||'[]');
+          receipts.unshift({id:saved.id,kind,createdAt:new Date().toISOString()});
+          localStorage.setItem('templeflow-receipts',JSON.stringify(receipts.slice(0,30)));
+        }
         form.reset();loadMine();
       }catch(err){result.textContent='送出失敗：'+err.message}
       finally{button.disabled=false}
@@ -75,6 +117,11 @@
   async function loadMine(){
     const target=$('#myRecords');
     if(!target)return;
+    if(DIRECT){
+      const receipts=JSON.parse(localStorage.getItem('templeflow-receipts')||'[]');
+      target.innerHTML=receipts.length?receipts.map(x=>'<div class="card"><strong>'+escape(names[x.kind])+' · '+escape(x.id.slice(0,8))+'</strong><p>本裝置的申請收據 · 待廟方確認</p></div>').join(''):'這台裝置目前沒有申請收據';
+      return;
+    }
     if(!ready||!token){target.textContent='完成後端設定並以 LINE 登入後，可查看自己的申請。';return}
     try{
       const {records}=await api('mine');
@@ -82,6 +129,7 @@
     }catch(e){target.textContent=e.message}
   }
   async function loadQueue(){
+    if(DIRECT){$('#currentNumber').textContent='尚未開放';return}
     if(!ready)return;
     try{
       const q=await api('queue');
