@@ -65,7 +65,7 @@
       try{
         const data=Object.fromEntries(new FormData(form));
         const saved=await api('records/'+kind,{method:'POST',body:JSON.stringify(data)});
-        result.textContent='已收到申請，編號 '+saved.id.slice(0,8)+'。狀態：待確認。';
+        result.textContent='已收到申請，編號 '+saved.id.slice(0,8)+'。狀態：待確認。'+(kind==='lights'?'付款方式：LINE Pay，目前未付款；尚未開放支付。':'');
         form.reset();loadMine();
       }catch(err){result.textContent='送出失敗：'+err.message}
       finally{button.disabled=false}
@@ -78,7 +78,7 @@
     if(!ready||!token){target.textContent='完成後端設定並以 LINE 登入後，可查看自己的申請。';return}
     try{
       const {records}=await api('mine');
-      target.innerHTML=records.length?records.map(x=>'<div class="card"><strong>'+escape(names[x.kind])+' · '+escape(x.id.slice(0,8))+'</strong><p>'+escape(x.date||x.type||'')+' · '+escape(x.status)+'</p></div>').join(''):'尚無申請紀錄';
+      target.innerHTML=records.length?records.map(x=>'<div class="card"><strong>'+escape(names[x.kind])+' · '+escape(x.id.slice(0,8))+'</strong><p>'+escape(x.date||x.type||'')+' · '+escape(x.status)+(x.kind==='lights'?' · '+escape(x.payment_method||'LINE Pay')+' '+escape(x.payment_status||'未付款'):'')+'</p></div>').join(''):'尚無申請紀錄';
     }catch(e){target.textContent=e.message}
   }
   async function loadQueue(){
@@ -110,7 +110,7 @@
   function cell(v){let s=String(v??'');if(/^[\s]*[=+\-@\t\r]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"'}
   $('#exportData').addEventListener('click',()=>{
     if(!admin)return;
-    const lines=[['服務','編號','姓名／團體','電話','日期','類型／時段','狀態'],...records.map(x=>[names[x.kind],x.id,x.name||x.group,x.phone,x.date,x.type||x.slot||x.role||x.time,x.status])];
+    const lines=[['服務','編號','姓名／團體','電話','日期','類型／時段','狀態','付款方式','付款狀態'],...records.map(x=>[names[x.kind],x.id,x.name||x.group,x.phone,x.date,x.type||x.slot||x.role||x.time,x.status,x.payment_method||'',x.payment_status||''])];
     const blob=new Blob(['\ufeff'+lines.map(row=>row.map(cell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'});
     const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='TempleFlow-'+today()+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
   });
@@ -134,7 +134,7 @@
     try{
       if(file.size>200000)throw Error('檔案超過 200 KB');
       const rows=parseCSV((await file.text()).replace(/^\ufeff/,''));
-      if(rows[0]?.join(',')!=='服務,編號,姓名／團體,電話,日期,類型／時段,狀態')throw Error('請使用網站匯出的 CSV 格式');
+      if(!['服務,編號,姓名／團體,電話,日期,類型／時段,狀態','服務,編號,姓名／團體,電話,日期,類型／時段,狀態,付款方式,付款狀態'].includes(rows[0]?.join(',')))throw Error('請使用網站匯出的 CSV 格式');
       const reverse={問事:'appointments',點燈:'lights',志工:'volunteers',進香:'pilgrimages'};
       const changes=rows.slice(1).map(row=>({kind:reverse[row[0]],id:row[1],status:row[6]}));
       if(!changes.length)throw Error('檔案內沒有紀錄');
