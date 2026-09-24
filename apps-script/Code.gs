@@ -135,7 +135,9 @@ function turtleAction_(body){
     const sheet=sheet_('turtles'),count=sheet.getLastRow();
     if(count<2)throw new Error('找不到申請紀錄');
     const rows=sheet.getRange(2,1,count-1,HEADERS.turtles.length).getDisplayValues();
-    const index=rows.findIndex(row=>row[0]===id&&row[2]===user);
+    const approving=body.action==='approveFulfillment';
+    if(approving&&!isAdmin_(user))throw new Error('僅指定管理員可確認還願');
+    const index=rows.findIndex(row=>row[0]===id&&(approving||row[2]===user));
     if(index<0)throw new Error('找不到這個 LINE 帳號的申請');
     const row=rows[index],col=HEADERS.turtles.indexOf('fulfillment_status')+1;
     if(body.action==='reportFulfillment'){
@@ -143,6 +145,11 @@ function turtleAction_(body){
         sheet.getRange(index+2,col).setValue('已回報還願，待廟方確認');
         row[col-1]='已回報還願，待廟方確認';
       }
+    }
+    if(approving){
+      if(row[col-1]!=='已回報還願，待廟方確認'&&row[col-1]!=='已確認還願')throw new Error('信眾尚未回報還願');
+      sheet.getRange(index+2,col).setValue('已確認還願');
+      row[col-1]='已確認還願';
     }
     return {ok:true,id,status:row[8],fulfillmentStatus:row[col-1]};
   }finally{lock.releaseLock()}
@@ -215,14 +222,14 @@ function doPost(e){
     body=JSON.parse(e.postData.contents);
     requestId=String(body.requestId||'');
     const result=body.action==='submit'?submit_(body):
-      ['turtleStatus','reportFulfillment'].includes(body.action)?turtleAction_(body):
+      ['turtleStatus','reportFulfillment','approveFulfillment'].includes(body.action)?turtleAction_(body):
       ['updateLocation','stopLocation'].includes(body.action)?locationAction_(body):
       body.action==='adminCheck'?{ok:true,admin:isAdmin_(lineUser_(body.idToken))}:proxy_(body);
-    if(['submit','turtleStatus','reportFulfillment','updateLocation','stopLocation','adminCheck'].includes(body.action)&&/^[a-f0-9-]{36}$/.test(requestId))CacheService.getScriptCache().put('receipt_'+requestId,JSON.stringify(result),300);
+    if(['submit','turtleStatus','reportFulfillment','approveFulfillment','updateLocation','stopLocation','adminCheck'].includes(body.action)&&/^[a-f0-9-]{36}$/.test(requestId))CacheService.getScriptCache().put('receipt_'+requestId,JSON.stringify(result),300);
     return json_(result);
   }catch(err){
     const result={ok:false,error:String(err.message||err)};
-    if(body&&['submit','turtleStatus','reportFulfillment','updateLocation','stopLocation','adminCheck'].includes(body.action)&&/^[a-f0-9-]{36}$/.test(requestId))CacheService.getScriptCache().put('receipt_'+requestId,JSON.stringify(result),300);
+    if(body&&['submit','turtleStatus','reportFulfillment','approveFulfillment','updateLocation','stopLocation','adminCheck'].includes(body.action)&&/^[a-f0-9-]{36}$/.test(requestId))CacheService.getScriptCache().put('receipt_'+requestId,JSON.stringify(result),300);
     return json_(result);
   }
 }
